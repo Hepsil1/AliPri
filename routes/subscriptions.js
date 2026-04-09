@@ -100,4 +100,99 @@ router.put('/:id/expire', (req, res) => {
   }
 });
 
+// POST /api/subscriptions/:id/plus — used +1 (athlete came, remaining goes down)
+router.post('/:id/plus', (req, res) => {
+  try {
+    const sub = queryOne('SELECT * FROM subscriptions WHERE id = ?', [req.params.id]);
+    if (!sub) return res.status(404).json({ error: true, message: 'Абонемент не найден' });
+    runSql('UPDATE subscriptions SET used_sessions = used_sessions + 1 WHERE id = ?', [req.params.id]);
+    const updated = queryOne('SELECT * FROM subscriptions WHERE id = ?', [req.params.id]);
+    const remaining = updated.total_sessions - updated.used_sessions;
+    let alert = null;
+    if (remaining <= 0) alert = { type: 'expired', remaining: 0 };
+    else if (remaining <= 2) alert = { type: 'low', remaining };
+    res.json({ subscription: updated, alert });
+  } catch (err) {
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
+// POST /api/subscriptions/:id/minus — used -1 (undo, remaining goes up)
+router.post('/:id/minus', (req, res) => {
+  try {
+    const sub = queryOne('SELECT * FROM subscriptions WHERE id = ?', [req.params.id]);
+    if (!sub) return res.status(404).json({ error: true, message: 'Абонемент не найден' });
+    runSql('UPDATE subscriptions SET used_sessions = MAX(0, used_sessions - 1) WHERE id = ?', [req.params.id]);
+    const updated = queryOne('SELECT * FROM subscriptions WHERE id = ?', [req.params.id]);
+    res.json({ subscription: updated, alert: null });
+  } catch (err) {
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
+// POST /api/singles/mark — toggle single-visit attendance for today
+router.post('/singles/mark', (req, res) => {
+  try {
+    const { athlete_id } = req.body;
+    if (!athlete_id) return res.status(400).json({ error: true, message: 'athlete_id обязателен' });
+    const today = new Date().toISOString().slice(0, 10);
+    // Check if already marked today
+    const existing = queryOne(
+      "SELECT id FROM attendance WHERE athlete_id = ? AND date(marked_at) = ?",
+      [athlete_id, today]
+    );
+    if (existing) {
+      // Unmark
+      runSql('DELETE FROM attendance WHERE id = ?', [existing.id]);
+      res.json({ marked: false });
+    } else {
+      // Ensure training exists for today
+      let training = queryOne(
+        "SELECT id FROM trainings WHERE date = ? LIMIT 1",
+        [today]
+      );
+      if (!training) {
+        const r = runSql("INSERT INTO trainings (group_id, date) VALUES (1, ?)", [today]);
+        training = { id: r.lastInsertRowid };
+      }
+      runSql(
+        "INSERT INTO attendance (training_id, athlete_id, status, amount_paid, marked_at) VALUES (?, ?, 'single_pay', 0, datetime('now','localtime'))",
+        [training.id, athlete_id]
+      );
+      res.json({ marked: true });
+    }
+  } catch (err) {
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
+// GET /api/singles/status — get today's marks + monthly counts for all single-pay athletes
+router.get('/singles/status', (req, res) => {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const monthStart = today.slice(0, 7) + '-01';
+    const athletes = queryAll(
+      "SELECT a.*, g.name as group_name, g.color as group_color FROM athletes a LEFT JOIN groups g ON a.group_id = g.id WHERE a.status = 'active' AND a.payment_type = 'single' ORDER BY a.name"
+    );
+    const result = athletes.map(a => {
+      const todayMark = queryOne(
+        "SELECT id FROM attendance WHERE athlete_id = ? AND date(marked_at) = ?",
+        [a.id, today]
+      );
+      const monthCount = queryOne(
+        "SELECT COUNT(*) as cnt FROM attendance WHERE athlete_id = ? AND date(marked_at) >= ?",
+        [a.id, monthStart]
+      );
+      return {
+        ...a,
+        marked_today: !!todayMark,
+        month_count: monthCount ? monthCount.cnt : 0,
+      };
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
 module.exports = router;

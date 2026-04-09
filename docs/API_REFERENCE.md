@@ -56,7 +56,7 @@
   {
     "id": 1,
     "name": "Иванов Иван",
-    "phone": "+7 900 123 4567",
+    "phone": "+380 99 123 4567",
     "telegram": "@ivanov",
     "group_id": 1,
     "group_name": "Начинающие",
