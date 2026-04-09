@@ -224,6 +224,11 @@ function saveToFile() {
 /* ═══════ Unified API (always async) ═══════ */
 async function initDatabase() {
   if (isPG) return initPG();
+  
+  if (process.env.VERCEL) {
+    throw new Error('ОШИБКА НАСТРОЙКИ: Не найдена база данных Postgres! Вам нужно зайти в настройки Vercel -> Storage, подключить базу Neon, и убедиться что у вас появилась переменная DATABASE_URL.');
+  }
+
   return initSQLite();
 }
 
