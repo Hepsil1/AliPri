@@ -4,9 +4,9 @@ const { queryAll, queryOne, runSql } = require('../database');
 const router = express.Router();
 
 // GET /api/subscriptions/:athlete_id — subscriptions for athlete
-router.get('/:athlete_id', (req, res) => {
+router.get('/:athlete_id', async (req, res) => {
   try {
-    const subs = queryAll(
+    const subs = await queryAll(
       'SELECT * FROM subscriptions WHERE athlete_id = ? ORDER BY id DESC',
       [req.params.athlete_id]
     );
@@ -17,13 +17,12 @@ router.get('/:athlete_id', (req, res) => {
 });
 
 // POST /api/subscriptions — create subscription
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   try {
     const { athlete_id, total_sessions } = req.body;
     if (!athlete_id) return res.status(400).json({ error: true, message: 'athlete_id обязателен' });
 
-    // Check for existing active subscription
-    const activeSub = queryOne(
+    const activeSub = await queryOne(
       "SELECT * FROM subscriptions WHERE athlete_id = ? AND status IN ('active', 'frozen')",
       [athlete_id]
     );
@@ -34,79 +33,79 @@ router.post('/', (req, res) => {
       });
     }
 
-    const result = runSql(
+    const result = await runSql(
       'INSERT INTO subscriptions (athlete_id, total_sessions) VALUES (?, ?)',
       [athlete_id, total_sessions || 8]
     );
 
-    const sub = queryOne('SELECT * FROM subscriptions WHERE id = ?', [result.lastInsertRowid]);
+    const sub = await queryOne('SELECT * FROM subscriptions WHERE id = ?', [result.lastInsertRowid]);
     res.status(201).json(sub);
   } catch (err) {
     res.status(500).json({ error: true, message: err.message });
   }
 });
 
-// PUT /api/subscriptions/:id/freeze — freeze subscription
-router.put('/:id/freeze', (req, res) => {
+// PUT /api/subscriptions/:id/freeze
+router.put('/:id/freeze', async (req, res) => {
   try {
-    const sub = queryOne('SELECT * FROM subscriptions WHERE id = ?', [req.params.id]);
+    const sub = await queryOne('SELECT * FROM subscriptions WHERE id = ?', [req.params.id]);
     if (!sub) return res.status(404).json({ error: true, message: 'Абонемент не найден' });
     if (sub.status !== 'active') {
       return res.status(400).json({ error: true, message: 'Можно заморозить только активный абонемент' });
     }
 
     const { reason } = req.body;
-    runSql(
+    await runSql(
       "UPDATE subscriptions SET status = 'frozen', frozen_at = date('now', 'localtime'), freeze_reason = ? WHERE id = ?",
       [reason || 'Не указана', req.params.id]
     );
 
-    const updated = queryOne('SELECT * FROM subscriptions WHERE id = ?', [req.params.id]);
+    const updated = await queryOne('SELECT * FROM subscriptions WHERE id = ?', [req.params.id]);
     res.json(updated);
   } catch (err) {
     res.status(500).json({ error: true, message: err.message });
   }
 });
 
-// PUT /api/subscriptions/:id/unfreeze — unfreeze subscription
-router.put('/:id/unfreeze', (req, res) => {
+// PUT /api/subscriptions/:id/unfreeze
+router.put('/:id/unfreeze', async (req, res) => {
   try {
-    const sub = queryOne('SELECT * FROM subscriptions WHERE id = ?', [req.params.id]);
+    const sub = await queryOne('SELECT * FROM subscriptions WHERE id = ?', [req.params.id]);
     if (!sub) return res.status(404).json({ error: true, message: 'Абонемент не найден' });
     if (sub.status !== 'frozen') {
       return res.status(400).json({ error: true, message: 'Абонемент не заморожен' });
     }
 
-    runSql(
+    await runSql(
       "UPDATE subscriptions SET status = 'active', frozen_at = NULL, freeze_reason = '' WHERE id = ?",
       [req.params.id]
     );
 
-    const updated = queryOne('SELECT * FROM subscriptions WHERE id = ?', [req.params.id]);
+    const updated = await queryOne('SELECT * FROM subscriptions WHERE id = ?', [req.params.id]);
     res.json(updated);
   } catch (err) {
     res.status(500).json({ error: true, message: err.message });
   }
 });
 
-// PUT /api/subscriptions/:id/expire — manually expire subscription
-router.put('/:id/expire', (req, res) => {
+// PUT /api/subscriptions/:id/expire
+router.put('/:id/expire', async (req, res) => {
   try {
-    runSql("UPDATE subscriptions SET status = 'expired' WHERE id = ?", [req.params.id]);
-    const updated = queryOne('SELECT * FROM subscriptions WHERE id = ?', [req.params.id]);
+    await runSql("UPDATE subscriptions SET status = 'expired' WHERE id = ?", [req.params.id]);
+    const updated = await queryOne('SELECT * FROM subscriptions WHERE id = ?', [req.params.id]);
     res.json(updated);
   } catch (err) {
     res.status(500).json({ error: true, message: err.message });
   }
 });
 
-// POST /api/subscriptions/:id/plus — used +1 (athlete came, remaining goes down)
-router.post('/:id/plus', (req, res) => {
+// POST /api/subscriptions/:id/plus — +1 used (remaining goes down)
+router.post('/:id/plus', async (req, res) => {
   try {
-    const sub = queryOne('SELECT * FROM subscriptions WHERE id = ?', [req.params.id]);
+    const sub = await queryOne('SELECT * FROM subscriptions WHERE id = ?', [req.params.id]);
     if (!sub) return res.status(404).json({ error: true, message: 'Абонемент не найден' });
-    runSql('UPDATE subscriptions SET used_sessions = used_sessions + 1 WHERE id = ?', [req.params.id]);
-    const updated = queryOne('SELECT * FROM subscriptions WHERE id = ?', [req.params.id]);
+    await runSql('UPDATE subscriptions SET used_sessions = used_sessions + 1 WHERE id = ?', [req.params.id]);
+    const updated = await queryOne('SELECT * FROM subscriptions WHERE id = ?', [req.params.id]);
     const remaining = updated.total_sessions - updated.used_sessions;
     let alert = null;
     if (remaining <= 0) alert = { type: 'expired', remaining: 0 };
@@ -117,13 +116,13 @@ router.post('/:id/plus', (req, res) => {
   }
 });
 
-// POST /api/subscriptions/:id/minus — used -1 (undo, remaining goes up)
-router.post('/:id/minus', (req, res) => {
+// POST /api/subscriptions/:id/minus — -1 used (remaining goes up)
+router.post('/:id/minus', async (req, res) => {
   try {
-    const sub = queryOne('SELECT * FROM subscriptions WHERE id = ?', [req.params.id]);
+    const sub = await queryOne('SELECT * FROM subscriptions WHERE id = ?', [req.params.id]);
     if (!sub) return res.status(404).json({ error: true, message: 'Абонемент не найден' });
-    runSql('UPDATE subscriptions SET used_sessions = MAX(0, used_sessions - 1) WHERE id = ?', [req.params.id]);
-    const updated = queryOne('SELECT * FROM subscriptions WHERE id = ?', [req.params.id]);
+    await runSql('UPDATE subscriptions SET used_sessions = MAX(0, used_sessions - 1) WHERE id = ?', [req.params.id]);
+    const updated = await queryOne('SELECT * FROM subscriptions WHERE id = ?', [req.params.id]);
     res.json({ subscription: updated, alert: null });
   } catch (err) {
     res.status(500).json({ error: true, message: err.message });
@@ -131,31 +130,28 @@ router.post('/:id/minus', (req, res) => {
 });
 
 // POST /api/singles/mark — toggle single-visit attendance for today
-router.post('/singles/mark', (req, res) => {
+router.post('/singles/mark', async (req, res) => {
   try {
     const { athlete_id } = req.body;
     if (!athlete_id) return res.status(400).json({ error: true, message: 'athlete_id обязателен' });
     const today = new Date().toISOString().slice(0, 10);
-    // Check if already marked today
-    const existing = queryOne(
+    const existing = await queryOne(
       "SELECT id FROM attendance WHERE athlete_id = ? AND date(marked_at) = ?",
       [athlete_id, today]
     );
     if (existing) {
-      // Unmark
-      runSql('DELETE FROM attendance WHERE id = ?', [existing.id]);
+      await runSql('DELETE FROM attendance WHERE id = ?', [existing.id]);
       res.json({ marked: false });
     } else {
-      // Ensure training exists for today
-      let training = queryOne(
+      let training = await queryOne(
         "SELECT id FROM trainings WHERE date = ? LIMIT 1",
         [today]
       );
       if (!training) {
-        const r = runSql("INSERT INTO trainings (group_id, date) VALUES (1, ?)", [today]);
+        const r = await runSql("INSERT INTO trainings (group_id, date) VALUES (1, ?)", [today]);
         training = { id: r.lastInsertRowid };
       }
-      runSql(
+      await runSql(
         "INSERT INTO attendance (training_id, athlete_id, status, amount_paid, marked_at) VALUES (?, ?, 'single_pay', 0, datetime('now','localtime'))",
         [training.id, athlete_id]
       );
@@ -166,29 +162,30 @@ router.post('/singles/mark', (req, res) => {
   }
 });
 
-// GET /api/singles/status — get today's marks + monthly counts for all single-pay athletes
-router.get('/singles/status', (req, res) => {
+// GET /api/singles/status — today's marks + monthly counts
+router.get('/singles/status', async (req, res) => {
   try {
     const today = new Date().toISOString().slice(0, 10);
     const monthStart = today.slice(0, 7) + '-01';
-    const athletes = queryAll(
+    const athletes = await queryAll(
       "SELECT a.*, g.name as group_name, g.color as group_color FROM athletes a LEFT JOIN groups g ON a.group_id = g.id WHERE a.status = 'active' AND a.payment_type = 'single' ORDER BY a.name"
     );
-    const result = athletes.map(a => {
-      const todayMark = queryOne(
+    const result = [];
+    for (const a of athletes) {
+      const todayMark = await queryOne(
         "SELECT id FROM attendance WHERE athlete_id = ? AND date(marked_at) = ?",
         [a.id, today]
       );
-      const monthCount = queryOne(
+      const monthCount = await queryOne(
         "SELECT COUNT(*) as cnt FROM attendance WHERE athlete_id = ? AND date(marked_at) >= ?",
         [a.id, monthStart]
       );
-      return {
+      result.push({
         ...a,
         marked_today: !!todayMark,
         month_count: monthCount ? monthCount.cnt : 0,
-      };
-    });
+      });
+    }
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: true, message: err.message });

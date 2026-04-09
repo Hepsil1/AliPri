@@ -4,7 +4,7 @@ const { queryAll, queryOne, runSql } = require('../database');
 const router = express.Router();
 
 // GET /api/athletes — all athletes (optional filter by group_id, status)
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
     const { group_id, status } = req.query;
     let sql = `
@@ -38,10 +38,12 @@ router.get('/', (req, res) => {
 
     sql += ' ORDER BY a.name';
 
-    const athletes = queryAll(sql, params).map(a => {
+    const athletes = (await queryAll(sql, params)).map(a => {
       if (a.active_subscription) {
         try {
-          a.active_subscription = JSON.parse(a.active_subscription);
+          if (typeof a.active_subscription === 'string') {
+            a.active_subscription = JSON.parse(a.active_subscription);
+          }
         } catch (e) {
           a.active_subscription = null;
         }
@@ -56,9 +58,9 @@ router.get('/', (req, res) => {
 });
 
 // GET /api/athletes/:id — full athlete card with history
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
-    const athlete = queryOne(`
+    const athlete = await queryOne(`
       SELECT a.*, g.name as group_name, g.color as group_color
       FROM athletes a
       LEFT JOIN groups g ON a.group_id = g.id
@@ -68,13 +70,13 @@ router.get('/:id', (req, res) => {
     if (!athlete) return res.status(404).json({ error: true, message: 'Спортсмен не найден' });
 
     // Get subscriptions
-    athlete.subscriptions = queryAll(
+    athlete.subscriptions = await queryAll(
       'SELECT * FROM subscriptions WHERE athlete_id = ? ORDER BY id DESC',
       [req.params.id]
     );
 
     // Get recent attendance (last 30)
-    athlete.attendance_history = queryAll(`
+    athlete.attendance_history = await queryAll(`
       SELECT att.*, t.date, t.time, g.name as group_name
       FROM attendance att
       JOIN trainings t ON att.training_id = t.id
@@ -91,18 +93,18 @@ router.get('/:id', (req, res) => {
 });
 
 // POST /api/athletes — create athlete
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   try {
     const { name, phone, telegram, group_id, payment_type, notes } = req.body;
     if (!name) return res.status(400).json({ error: true, message: 'Имя обязательно' });
     if (!group_id) return res.status(400).json({ error: true, message: 'Группа обязательна' });
 
-    const result = runSql(
+    const result = await runSql(
       'INSERT INTO athletes (name, phone, telegram, group_id, payment_type, notes) VALUES (?, ?, ?, ?, ?, ?)',
       [name, phone || '', telegram || '', group_id, payment_type || 'subscription', notes || '']
     );
 
-    const athlete = queryOne('SELECT * FROM athletes WHERE id = ?', [result.lastInsertRowid]);
+    const athlete = await queryOne('SELECT * FROM athletes WHERE id = ?', [result.lastInsertRowid]);
     res.status(201).json(athlete);
   } catch (err) {
     res.status(500).json({ error: true, message: err.message });
@@ -110,14 +112,14 @@ router.post('/', (req, res) => {
 });
 
 // PUT /api/athletes/:id — update athlete
-router.put('/:id', (req, res) => {
+router.put('/:id', async (req, res) => {
   try {
-    const existing = queryOne('SELECT * FROM athletes WHERE id = ?', [req.params.id]);
+    const existing = await queryOne('SELECT * FROM athletes WHERE id = ?', [req.params.id]);
     if (!existing) return res.status(404).json({ error: true, message: 'Спортсмен не найден' });
 
     const { name, phone, telegram, group_id, payment_type, status, notes } = req.body;
 
-    runSql(
+    await runSql(
       'UPDATE athletes SET name = ?, phone = ?, telegram = ?, group_id = ?, payment_type = ?, status = ?, notes = ? WHERE id = ?',
       [
         name || existing.name,
@@ -131,7 +133,7 @@ router.put('/:id', (req, res) => {
       ]
     );
 
-    const athlete = queryOne('SELECT * FROM athletes WHERE id = ?', [req.params.id]);
+    const athlete = await queryOne('SELECT * FROM athletes WHERE id = ?', [req.params.id]);
     res.json(athlete);
   } catch (err) {
     res.status(500).json({ error: true, message: err.message });
@@ -139,12 +141,12 @@ router.put('/:id', (req, res) => {
 });
 
 // DELETE /api/athletes/:id — soft delete (deactivate)
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   try {
-    const existing = queryOne('SELECT * FROM athletes WHERE id = ?', [req.params.id]);
+    const existing = await queryOne('SELECT * FROM athletes WHERE id = ?', [req.params.id]);
     if (!existing) return res.status(404).json({ error: true, message: 'Спортсмен не найден' });
 
-    runSql("UPDATE athletes SET status = 'inactive' WHERE id = ?", [req.params.id]);
+    await runSql("UPDATE athletes SET status = 'inactive' WHERE id = ?", [req.params.id]);
     res.json({ success: true, message: 'Спортсмен деактивирован' });
   } catch (err) {
     res.status(500).json({ error: true, message: err.message });

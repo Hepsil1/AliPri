@@ -5,14 +5,24 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "vercel-build": "echo 'No build step needed'"
   },
-  "keywords": ["sports", "club", "attendance", "management"],
+  "engines": {
+    "node": ">=18.x"
+  },
+  "keywords": [
+    "sports",
+    "club",
+    "attendance",
+    "management"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "cors": "^2.8.5",
     "express": "^4.21.0",
-    "sql.js": "^1.11.0",
-    "cors": "^2.8.5"
+    "pg": "^8.20.0",
+    "sql.js": "^1.11.0"
   }
 }

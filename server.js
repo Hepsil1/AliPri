@@ -20,7 +20,7 @@ app.use('/api/trainings', require('./routes/trainings'));
 app.use('/api/attendance', require('./routes/attendance'));
 app.use('/api/dashboard', require('./routes/dashboard'));
 
-// SPA fallback — serve index.html for all non-API routes
+// SPA fallback
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
@@ -31,18 +31,29 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: true, message: 'Внутренняя ошибка сервера' });
 });
 
-// Start server
-async function start() {
-  try {
-    await initDatabase();
+// Initialize DB and start
+let dbReady = false;
+const dbInit = initDatabase().then(() => {
+  dbReady = true;
+}).catch(err => {
+  console.error('❌ DB init failed:', err);
+  process.exit(1);
+});
+
+// For Vercel: export the app (don't listen)
+if (process.env.VERCEL) {
+  // Vercel serverless — ensure DB is ready before handling requests
+  const handler = async (req, res) => {
+    if (!dbReady) await dbInit;
+    return app(req, res);
+  };
+  module.exports = handler;
+} else {
+  // Local development — start HTTP server
+  dbInit.then(() => {
     app.listen(PORT, () => {
       console.log(`\n🏅 СчётДетей запущен!`);
       console.log(`📍 http://localhost:${PORT}\n`);
     });
-  } catch (err) {
-    console.error('❌ Failed to start:', err);
-    process.exit(1);
-  }
+  });
 }
-
-start();
