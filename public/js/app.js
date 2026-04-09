@@ -7,7 +7,10 @@ const API = {
       body: o.body ? JSON.stringify(o.body) : undefined,
     });
     const d = await r.json();
-    if (!r.ok) throw new Error(d.message || 'Ошибка');
+    if (!r.ok) {
+      if (d.details) throw new Error(`${d.message}\nДетали: ${d.details}\nPG=${d.hasPostgresEnv} DB=${d.hasDatabaseEnv}`);
+      throw new Error(d.message || 'Ошибка');
+    }
     return d;
   },
   get: p => API.req(p),
