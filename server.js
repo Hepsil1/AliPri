@@ -9,7 +9,31 @@ const PORT = process.env.PORT || 3000;
 // Middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+
+// Initialize DB
+let dbReady = false;
+let dbError = null;
+const dbInit = initDatabase().then(() => {
+  dbReady = true;
+}).catch(err => {
+  console.error('❌ DB init failed:', err);
+  dbError = err;
+});
+
+// DB check middleware (must be BEFORE API routes)
+app.use('/api', async (req, res, next) => {
+  if (!dbReady && !dbError) await dbInit;
+  if (dbError) {
+    return res.status(500).json({ 
+      error: true, 
+      message: 'Database connection failed', 
+      details: dbError.message || String(dbError),
+      hasPostgresEnv: !!process.env.POSTGRES_URL,
+      hasDatabaseEnv: !!process.env.DATABASE_URL
+    });
+  }
+  next();
+});
 
 // API Routes
 app.use('/api/groups', require('./routes/groups'));
@@ -19,6 +43,9 @@ app.use('/api/singles', require('./routes/subscriptions'));
 app.use('/api/trainings', require('./routes/trainings'));
 app.use('/api/attendance', require('./routes/attendance'));
 app.use('/api/dashboard', require('./routes/dashboard'));
+
+// Static files (local fallback)
+app.use(express.static(path.join(__dirname, 'public')));
 
 // SPA fallback
 app.get('*', (req, res) => {
@@ -31,36 +58,9 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: true, message: 'Внутренняя ошибка сервера' });
 });
 
-// Initialize DB and start
-let dbReady = false;
-let dbError = null;
-const dbInit = initDatabase().then(() => {
-  dbReady = true;
-}).catch(err => {
-  console.error('❌ DB init failed:', err);
-  dbError = err;
-});
-
-// For Vercel: export the app (don't listen)
+// For Vercel: export the app natively
 if (process.env.VERCEL) {
-  // Vercel serverless — ensure DB is ready before handling requests
-  const handler = async (req, res) => {
-    // Only wait for the Database if it's an API request. Let frontend load instantly!
-    if (req.url && req.url.startsWith('/api')) {
-      if (!dbReady && !dbError) await dbInit;
-      if (dbError) {
-        return res.status(500).json({ 
-          error: true, 
-          message: 'Database connection failed', 
-          details: dbError.message || dbError,
-          hasPostgresEnv: !!process.env.POSTGRES_URL,
-          hasDatabaseEnv: !!process.env.DATABASE_URL
-        });
-      }
-    }
-    return app(req, res);
-  };
-  module.exports = handler;
+  module.exports = app;
 } else {
   // Local development — start HTTP server
   dbInit.then(() => {
