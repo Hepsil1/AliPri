@@ -37,8 +37,7 @@ app.use('/api', async (req, res, next) => {
       error: true, 
       message: 'Database connection failed', 
       details: dbError.message || String(dbError),
-      hasPostgresEnv: !!process.env.POSTGRES_URL,
-      hasDatabaseEnv: !!process.env.DATABASE_URL
+      hasDatabaseString: Object.values(process.env).some(v => typeof v === 'string' && v.startsWith('postgres'))
     });
   }
   next();

@@ -2,7 +2,18 @@
 const path = require('path');
 const fs = require('fs');
 
-const isPG = !!(process.env.POSTGRES_URL || process.env.DATABASE_URL);
+// Ищем любую переменную окружения, которая начинается с postgres:// (на случай если Vercel назвал её нестандартно)
+let pgUrl = process.env.POSTGRES_URL || process.env.DATABASE_URL;
+if (!pgUrl) {
+  for (const key in process.env) {
+    if (typeof process.env[key] === 'string' && process.env[key].startsWith('postgres')) {
+      pgUrl = process.env[key];
+      break;
+    }
+  }
+}
+
+const isPG = !!pgUrl;
 let db = null;   // sql.js instance (local only)
 let pool = null;  // pg Pool (Vercel only)
 
@@ -21,7 +32,7 @@ function pgify(sql) {
 async function initPG() {
   const { Pool } = require('pg');
   pool = new Pool({
-    connectionString: process.env.POSTGRES_URL || process.env.DATABASE_URL,
+    connectionString: pgUrl,
     ssl: { rejectUnauthorized: false },
     max: 5,
   });
