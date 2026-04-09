@@ -37,20 +37,16 @@ async function initPG() {
     max: 5,
   });
 
-  // Create tables (PG syntax)
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS groups (
+  const setupQueries = [
+    `CREATE TABLE IF NOT EXISTS groups (
       id SERIAL PRIMARY KEY,
       name TEXT NOT NULL,
       color TEXT DEFAULT '#2196F3',
       schedule TEXT DEFAULT '',
       max_athletes INTEGER DEFAULT 20,
       created_at TIMESTAMP DEFAULT NOW()
-    )
-  `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS athletes (
+    )`,
+    `CREATE TABLE IF NOT EXISTS athletes (
       id SERIAL PRIMARY KEY,
       name TEXT NOT NULL,
       phone TEXT DEFAULT '',
@@ -60,11 +56,8 @@ async function initPG() {
       status TEXT DEFAULT 'active' CHECK(status IN ('active','inactive')),
       notes TEXT DEFAULT '',
       created_at TIMESTAMP DEFAULT NOW()
-    )
-  `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS subscriptions (
+    )`,
+    `CREATE TABLE IF NOT EXISTS subscriptions (
       id SERIAL PRIMARY KEY,
       athlete_id INTEGER NOT NULL REFERENCES athletes(id),
       total_sessions INTEGER NOT NULL DEFAULT 8,
@@ -74,22 +67,16 @@ async function initPG() {
       frozen_at DATE,
       freeze_reason TEXT DEFAULT '',
       notes TEXT DEFAULT ''
-    )
-  `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS trainings (
+    )`,
+    `CREATE TABLE IF NOT EXISTS trainings (
       id SERIAL PRIMARY KEY,
       group_id INTEGER NOT NULL REFERENCES groups(id),
       date DATE NOT NULL,
       time TEXT DEFAULT '',
       notes TEXT DEFAULT '',
       created_at TIMESTAMP DEFAULT NOW()
-    )
-  `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS attendance (
+    )`,
+    `CREATE TABLE IF NOT EXISTS attendance (
       id SERIAL PRIMARY KEY,
       training_id INTEGER NOT NULL REFERENCES trainings(id) ON DELETE CASCADE,
       athlete_id INTEGER NOT NULL REFERENCES athletes(id),
@@ -98,11 +85,8 @@ async function initPG() {
       amount_paid INTEGER DEFAULT 0,
       notes TEXT DEFAULT '',
       marked_at TIMESTAMP DEFAULT NOW()
-    )
-  `);
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS notifications_log (
+    )`,
+    `CREATE TABLE IF NOT EXISTS notifications_log (
       id SERIAL PRIMARY KEY,
       athlete_id INTEGER NOT NULL REFERENCES athletes(id),
       subscription_id INTEGER REFERENCES subscriptions(id),
@@ -110,26 +94,38 @@ async function initPG() {
       message TEXT NOT NULL,
       is_sent INTEGER DEFAULT 0,
       created_at TIMESTAMP DEFAULT NOW()
-    )
-  `);
-
-  // Indexes
-  const indexes = [
+    )`,
     'CREATE INDEX IF NOT EXISTS idx_ath_grp ON athletes(group_id)',
     'CREATE INDEX IF NOT EXISTS idx_att_tr ON attendance(training_id)',
     'CREATE INDEX IF NOT EXISTS idx_att_ath ON attendance(athlete_id)',
     'CREATE INDEX IF NOT EXISTS idx_sub_ath ON subscriptions(athlete_id)',
     'CREATE INDEX IF NOT EXISTS idx_sub_st ON subscriptions(status)',
     'CREATE INDEX IF NOT EXISTS idx_tr_date ON trainings(date)',
-    'CREATE INDEX IF NOT EXISTS idx_tr_grp ON trainings(group_id)',
+    'CREATE INDEX IF NOT EXISTS idx_tr_grp ON trainings(group_id)'
   ];
-  for (const idx of indexes) await pool.query(idx);
+
+  for (const query of setupQueries) {
+    try {
+      await pool.query(query);
+    } catch (err) {
+      if (err.code === '42P07') {
+        // 42P07 means "relation already exists". Harmless race condition on Vercel cold-starts.
+        console.warn('Warning: Relation already exists (concurrency loop), caught safely:', err.message);
+      } else {
+        throw err;
+      }
+    }
+  }
 
   // Seed groups if empty
-  const { rows } = await pool.query('SELECT COUNT(*) as count FROM groups');
-  if (parseInt(rows[0].count) === 0) {
-    await pool.query("INSERT INTO groups (name, color) VALUES ('Начинающие','#4CAF50'),('Средний','#2196F3'),('Проф','#FF9800'),('Взрослые','#9C27B0')");
-    console.log('🌱 Seeded 4 groups');
+  try {
+    const { rows } = await pool.query('SELECT COUNT(*) as count FROM groups');
+    if (parseInt(rows[0].count) === 0) {
+      await pool.query("INSERT INTO groups (name, color) VALUES ('Начинающие','#4CAF50'),('Средний','#2196F3'),('Проф','#FF9800'),('Взрослые','#9C27B0')");
+      console.log('🌱 Seeded 4 groups');
+    }
+  } catch (err) {
+    console.error('Seed groups error:', err);
   }
 
   console.log('✅ PostgreSQL ready');
