@@ -45,15 +45,18 @@ const dbInit = initDatabase().then(() => {
 if (process.env.VERCEL) {
   // Vercel serverless — ensure DB is ready before handling requests
   const handler = async (req, res) => {
-    if (!dbReady && !dbError) await dbInit;
-    if (dbError) {
-      return res.status(500).json({ 
-        error: true, 
-        message: 'Database connection failed', 
-        details: dbError.message || dbError,
-        hasPostgresEnv: !!process.env.POSTGRES_URL,
-        hasDatabaseEnv: !!process.env.DATABASE_URL
-      });
+    // Only wait for the Database if it's an API request. Let frontend load instantly!
+    if (req.url && req.url.startsWith('/api')) {
+      if (!dbReady && !dbError) await dbInit;
+      if (dbError) {
+        return res.status(500).json({ 
+          error: true, 
+          message: 'Database connection failed', 
+          details: dbError.message || dbError,
+          hasPostgresEnv: !!process.env.POSTGRES_URL,
+          hasDatabaseEnv: !!process.env.DATABASE_URL
+        });
+      }
     }
     return app(req, res);
   };
